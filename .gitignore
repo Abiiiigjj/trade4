@@ -1,0 +1,10 @@
+data/
+.env
+__pycache__/
+*.py[cod]
+*.parquet
+.pytest_cache/
+dist/
+*.egg-info/
+.venv/
+notebooks/.ipynb_checkpoints/
