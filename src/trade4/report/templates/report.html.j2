@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Phase-0 Report — {{ generated_at }}</title>
+<style>
+  body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+  h1, h2, h3 { color: #58a6ff; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
+  th, td { border: 1px solid #30363d; padding: 0.5rem 1rem; text-align: left; }
+  th { background: #161b22; }
+  .paper-label { background: #f85149; color: white; padding: 0.3rem 0.8rem; border-radius: 4px; font-weight: bold; }
+  .pass { color: #3fb950; }
+  .fail { color: #f85149; }
+  .warn { color: #d29922; }
+  .chart { margin: 1rem 0; }
+  img { max-width: 100%; border: 1px solid #30363d; }
+  .oos-warning { background: #f85149; color: white; padding: 1rem; margin-bottom: 2rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Phase-0 Funding Capture Report <span class="paper-label">PAPER</span></h1>
+<p>Generiert: {{ generated_at }} | Kapital: ~€2.000 (~€500/Leg)</p>
+
+{% if oos_worse_than_insample %}
+<div class="oos-warning">&#x26A0; Out-of-Sample schlechter als In-Sample — Overfitting-Warnung!</div>
+{% endif %}
+
+<h2>1. Screener-Ergebnisse</h2>
+<table>
+  <tr>
+    <th>Symbol</th><th>Avg Funding 30d</th><th>Avg Funding 90d</th>
+    <th>% Positive</th><th>Slippage est (bps)</th><th>FDUSD 0%</th><th>Kandidat</th>
+  </tr>
+  {% for row in screener_rows %}
+  <tr>
+    <td>{{ row.symbol }}</td>
+    <td>{{ "%.5f"|format(row.avg_funding_30d) }}</td>
+    <td>{{ "%.5f"|format(row.avg_funding_90d) }}</td>
+    <td>{{ "%.1f"|format(row.pct_positive_intervals * 100) }}%</td>
+    <td>{{ "%.1f"|format(row.slippage_est_bps) }}</td>
+    <td>{{ "&#x2713;" if row.fdusd_zero_fee else "&#x2717;" }}</td>
+    <td class="{{ 'pass' if row.gate_candidate else 'fail' }}">{{ "JA" if row.gate_candidate else "NEIN" }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% for symbol, result in backtest_results.items() %}
+<h2>2. Backtest: {{ symbol }}</h2>
+
+<table>
+  <tr><th>Metrik</th><th>Wert</th></tr>
+  <tr><td>Zyklen gesamt</td><td>{{ result.n_cycles }}</td></tr>
+  <tr><td>Net P&amp;L (bps)</td><td class="{{ 'pass' if result.net_pnl_bps > 0 else 'fail' }}">{{ "%.1f"|format(result.net_pnl_bps) }}</td></tr>
+  <tr><td>Max Drawdown (bps)</td><td class="{{ 'warn' if result.max_drawdown_bps < -50 else 'pass' }}">{{ "%.1f"|format(result.max_drawdown_bps) }}</td></tr>
+  <tr><td>% Gate bestanden</td><td>{{ "%.1f"|format(result.pct_gate_passed * 100) }}%</td></tr>
+  <tr><td>Avg Funding erhalten (bps/Zyklus)</td><td>{{ "%.1f"|format(result.avg_funding_bps) }}</td></tr>
+  <tr><td>Avg Kosten (bps/Zyklus)</td><td>{{ "%.1f"|format(result.avg_cost_bps) }}</td></tr>
+</table>
+
+{% if result.equity_chart_b64 %}
+<div class="chart">
+  <h3>Equity-Kurve (netto, kumulativ in bps)</h3>
+  <img src="data:image/png;base64,{{ result.equity_chart_b64 }}" />
+</div>
+{% endif %}
+
+{% if result.pnl_hist_b64 %}
+<div class="chart">
+  <h3>Return-Verteilung (bps/Zyklus)</h3>
+  <img src="data:image/png;base64,{{ result.pnl_hist_b64 }}" />
+</div>
+{% endif %}
+
+<h3>Sensitivity-Analyse (Net-Edge in bps)</h3>
+<table>
+  <tr><th></th><th>1x Fees/Slippage</th><th>2x Fees/Slippage</th></tr>
+  <tr>
+    <td>Normales Funding</td>
+    <td class="{{ 'pass' if result.sensitivity.normal_1x > 15 else 'fail' }}">{{ "%.1f"|format(result.sensitivity.normal_1x) }}</td>
+    <td class="{{ 'pass' if result.sensitivity.normal_2x > 15 else 'fail' }}">{{ "%.1f"|format(result.sensitivity.normal_2x) }}</td>
+  </tr>
+  <tr>
+    <td>Funding-Flip-Stress</td>
+    <td class="{{ 'pass' if result.sensitivity.flip_1x > 15 else 'fail' }}">{{ "%.1f"|format(result.sensitivity.flip_1x) }}</td>
+    <td class="{{ 'pass' if result.sensitivity.flip_2x > 15 else 'fail' }}">{{ "%.1f"|format(result.sensitivity.flip_2x) }}</td>
+  </tr>
+</table>
+
+<h3>Failure-Mode-Summary</h3>
+<table>
+  <tr><th>Szenario</th><th>Verlustquelle</th><th>Grenze</th></tr>
+  <tr><td>Funding flippt negativ</td><td>Short zahlt Funding statt zu erhalten</td><td>Exit-Threshold = 0.0%</td></tr>
+  <tr><td>Hohe Slippage</td><td>Taker-Kosten übersteigen Funding-Edge</td><td>Slippage-Budget = 50 bps/RT</td></tr>
+  <tr><td>Basis-Drift</td><td>Perp handelt nachhaltig über/unter Spot</td><td>Basis-Puffer = 2 bps modelliert</td></tr>
+  <tr><td>FDUSD-Depeg</td><td>FDUSD nicht 1:1 zu USDT</td><td>Depeg-Puffer = 0.5 bps</td></tr>
+  <tr><td>Exchange-Ausfall</td><td>Ungesichertes Leg bleibt offen</td><td>Kill-Switch (Phase 1)</td></tr>
+</table>
+
+{% endfor %}
+
+<hr>
+<p style="color:#6e7681;">Alle Zahlen NETTO nach Gebühren, Slippage und Basis-Drift. Kein Live-Handel. Charter §12.</p>
+</body>
+</html>
