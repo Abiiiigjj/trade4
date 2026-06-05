@@ -1,7 +1,6 @@
 import logging
-import os
-from functools import lru_cache
-import ccxt
+import time
+import requests
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -10,14 +9,14 @@ FDUSD_ZERO_FEE_BASES: frozenset[str] = frozenset(
     {"BTC", "ETH", "SOL", "DOGE", "LINK", "BNB", "XRP"}
 )
 
+_BASE = "https://fapi.binance.com"
+_SESSION = requests.Session()
 
-@lru_cache(maxsize=1)
-def _get_exchange() -> ccxt.binance:
-    return ccxt.binance({
-        "apiKey": os.getenv("BINANCE_API_KEY", ""),
-        "secret": os.getenv("BINANCE_API_SECRET", ""),
-        "options": {"defaultType": "future"},
-    })
+
+def _get(path: str, params: dict) -> dict | list:
+    resp = _SESSION.get(f"{_BASE}{path}", params=params, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def fetch_funding_history(
@@ -25,35 +24,37 @@ def fetch_funding_history(
     start_ts: pd.Timestamp,
     end_ts: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Fetch funding rate history for a perp symbol (e.g. 'DOGEUSDT')."""
-    ex = _get_exchange()
-    ccxt_symbol = _to_ccxt_perp(symbol)
+    """Fetch funding rate history — public endpoint, no auth needed."""
     since = int(start_ts.timestamp() * 1000)
     until = int(end_ts.timestamp() * 1000) if end_ts else None
 
     rows = []
     while True:
-        batch = ex.fetch_funding_rate_history(ccxt_symbol, since=since, limit=1000)
+        params: dict = {"symbol": symbol, "startTime": since, "limit": 1000}
+        if until:
+            params["endTime"] = until
+        batch = _get("/fapi/v1/fundingRate", params)
         if not batch:
             break
         rows.extend(batch)
-        last_ts = batch[-1]["timestamp"]
-        if until and last_ts >= until:
-            break
+        last_ts = int(batch[-1]["fundingTime"])
         if len(batch) < 1000:
             break
+        if until and last_ts >= until:
+            break
         since = last_ts + 1
+        time.sleep(0.1)
 
     if not rows:
         return pd.DataFrame(columns=["timestamp", "symbol", "funding_rate"])
 
     df = pd.DataFrame({
-        "timestamp": pd.to_datetime([r["timestamp"] for r in rows], unit="ms", utc=True).astype("datetime64[ns, UTC]"),
+        "timestamp": pd.to_datetime(
+            [int(r["fundingTime"]) for r in rows], unit="ms", utc=True
+        ).astype("datetime64[ns, UTC]"),
         "symbol": symbol,
         "funding_rate": [float(r["fundingRate"]) for r in rows],
     })
-    if until:
-        df = df[df["timestamp"] <= pd.Timestamp(until, unit="ms", tz="UTC")]
     return df.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
 
 
@@ -63,60 +64,54 @@ def fetch_ohlcv(
     start_ts: pd.Timestamp,
     end_ts: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Fetch OHLCV candles for a perp symbol."""
-    ex = _get_exchange()
-    ccxt_symbol = _to_ccxt_perp(symbol)
+    """Fetch OHLCV candles — public endpoint, no auth needed."""
     since = int(start_ts.timestamp() * 1000)
     until = int(end_ts.timestamp() * 1000) if end_ts else None
 
     rows = []
     while True:
-        batch = ex.fetch_ohlcv(ccxt_symbol, timeframe=interval, since=since, limit=1500)
+        params: dict = {"symbol": symbol, "interval": interval, "startTime": since, "limit": 1500}
+        if until:
+            params["endTime"] = until
+        batch = _get("/fapi/v1/klines", params)
         if not batch:
             break
         rows.extend(batch)
-        last_ts = batch[-1][0]
-        if until and last_ts >= until:
-            break
+        last_ts = int(batch[-1][0])
         if len(batch) < 1500:
             break
+        if until and last_ts >= until:
+            break
         since = last_ts + 1
+        time.sleep(0.1)
 
     if not rows:
         return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
-    df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df = pd.DataFrame(
+        [[int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4]), float(r[5])] for r in rows],
+        columns=["timestamp", "open", "high", "low", "close", "volume"],
+    )
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True).astype("datetime64[ns, UTC]")
-    if until:
-        df = df[df["timestamp"] <= pd.Timestamp(until, unit="ms", tz="UTC")]
     return df.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
 
 
 def fetch_orderbook(symbol: str, limit: int = 20) -> pd.DataFrame:
-    """Fetch current order book snapshot."""
-    ex = _get_exchange()
-    ccxt_symbol = _to_ccxt_perp(symbol)
-    book = ex.fetch_order_book(ccxt_symbol, limit=limit)
-    bids = pd.DataFrame(book["bids"], columns=["price", "qty"])
+    """Fetch current orderbook snapshot — public endpoint, no auth needed."""
+    data = _get("/fapi/v1/depth", {"symbol": symbol, "limit": limit})
+    bids = pd.DataFrame(data["bids"], columns=["price", "qty"]).astype(float)
     bids["side"] = "bid"
-    asks = pd.DataFrame(book["asks"], columns=["price", "qty"])
+    asks = pd.DataFrame(data["asks"], columns=["price", "qty"]).astype(float)
     asks["side"] = "ask"
     return pd.concat([bids, asks], ignore_index=True)
 
 
 def list_perp_symbols() -> list[str]:
-    """Return all USDT-margined perpetual symbols on Binance."""
-    ex = _get_exchange()
-    markets = ex.load_markets()
+    """Return all USDT-margined perpetual symbols — public endpoint, no auth needed."""
+    data = _get("/fapi/v1/exchangeInfo", {})
     return [
-        m["id"] for m in markets.values()
-        if m.get("type") == "swap" and m.get("quote") == "USDT" and m.get("active")
+        s["symbol"] for s in data["symbols"]
+        if s.get("contractType") == "PERPETUAL"
+        and s.get("quoteAsset") == "USDT"
+        and s.get("status") == "TRADING"
     ]
-
-
-def _to_ccxt_perp(symbol: str) -> str:
-    """Convert 'DOGEUSDT' to ccxt perp format 'DOGE/USDT:USDT'."""
-    if symbol.endswith("USDT"):
-        base = symbol[:-4]
-        return f"{base}/USDT:USDT"
-    return symbol
