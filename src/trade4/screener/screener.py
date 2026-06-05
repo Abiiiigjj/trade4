@@ -30,7 +30,7 @@ def compute_funding_stats(funding_df: pd.DataFrame) -> dict[str, float]:
         "avg_funding_30d": float(df30["funding_rate"].mean()) if len(df30) else 0.0,
         "avg_funding_90d": float(df90["funding_rate"].mean()) if len(df90) else 0.0,
         "pct_positive_intervals": float((funding_df["funding_rate"] > 0).mean()),
-        "n_intervals": len(funding_df),
+        "n_intervals": float(len(funding_df)),
     }
 
 
