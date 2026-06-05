@@ -23,7 +23,7 @@ def sample_funding_df() -> pd.DataFrame:
 @pytest.fixture
 def sample_ohlcv_df() -> pd.DataFrame:
     """Daily OHLCV for DOGE, 90 days."""
-    dates = pd.date_range("2024-01-01", periods=90, freq="1d", tz="UTC")
+    dates = pd.date_range("2024-01-01", periods=90, freq="D", tz="UTC")
     rng = np.random.default_rng(42)
     close = 0.10 + rng.normal(0, 0.005, 90).cumsum()
     close = np.clip(close, 0.05, 0.30)
