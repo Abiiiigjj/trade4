@@ -106,6 +106,18 @@ def screen_coins(
         if slippage_bps > config.max_slippage_bps:
             continue
 
+        if symbol in ohlcv_data and not ohlcv_data[symbol].empty:
+            ohlcv = ohlcv_data[symbol]
+            avg_volume = float(ohlcv["volume"].tail(30).mean())
+            best_ask = (
+                orderbook_data[symbol][orderbook_data[symbol]["side"] == "ask"]["price"].min()
+                if symbol in orderbook_data and not orderbook_data[symbol].empty
+                else 1.0
+            )
+            position_qty = config.position_size_eur / best_ask if best_ask > 0 else 0.0
+            if avg_volume > 0 and (position_qty / avg_volume) > config.volume_fraction_cap:
+                continue
+
         base = symbol.replace("USDT", "").replace("FDUSD", "")
         fdusd_eligible = bool(base in FDUSD_ZERO_FEE_BASES)
 

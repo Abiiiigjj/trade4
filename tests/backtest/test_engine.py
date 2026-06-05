@@ -106,7 +106,7 @@ def test_run_backtest_returns_result(sample_orderbook):
         "funding_rate": [0.0002] * len(timestamps),
     })
     ohlcv_df = pd.DataFrame({
-        "timestamp": pd.date_range("2023-01-01", periods=365*2, freq="1d", tz="UTC"),
+        "timestamp": pd.date_range("2023-01-01", periods=365*2, freq="D", tz="UTC"),
         "open": [0.10] * 365*2,
         "high": [0.105] * 365*2,
         "low": [0.095] * 365*2,

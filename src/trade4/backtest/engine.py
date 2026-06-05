@@ -165,6 +165,8 @@ def run_backtest(
                 in_position = False
                 entry_ts = None
 
+    # NOTE: open position at end of data is silently dropped (upward bias on truncated periods).
+    # For multi-year backtests the effect is negligible; make explicit in Phase-1 with forced close.
     return _build_result(cycles, funding_df)
 
 
@@ -191,7 +193,9 @@ def _count_rebalances(
     if period.empty:
         return 0
     drift = (period["close"] - entry_price).abs() / entry_price
-    return int((drift > REBALANCE_DELTA_THRESHOLD).sum())
+    above = drift > REBALANCE_DELTA_THRESHOLD
+    # Count leading-edge crossings (below→above threshold), not candles above
+    return int((above & ~above.shift(1, fill_value=False)).sum())
 
 
 def _build_result(cycles: list[CycleResult], funding_df: pd.DataFrame) -> BacktestResult:
