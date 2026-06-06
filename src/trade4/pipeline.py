@@ -25,7 +25,7 @@ DATA_DIR = Path("data")
 REPORT_PATH = Path("output/phase0_report.html")
 IN_SAMPLE_END = pd.Timestamp("2024-12-31", tz="UTC")
 HISTORY_START = pd.Timestamp("2023-01-01", tz="UTC")
-TOP_N_SYMBOLS = 20
+TOP_N_SYMBOLS = 100
 
 
 def _fetch_with_cache(exchange: str, symbol: str, fetcher_fn, data_type: str) -> pd.DataFrame:
