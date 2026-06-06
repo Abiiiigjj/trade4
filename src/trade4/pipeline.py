@@ -27,6 +27,9 @@ IN_SAMPLE_END = pd.Timestamp("2024-12-31", tz="UTC")
 HISTORY_START = pd.Timestamp("2023-01-01", tz="UTC")
 TOP_N_SYMBOLS = 100
 
+# Symbols with no real spot market — delta-neutral entry not possible
+SYMBOL_BLOCKLIST: frozenset[str] = frozenset({"BTCDOMUSDT"})
+
 
 def _fetch_with_cache(exchange: str, symbol: str, fetcher_fn, data_type: str) -> pd.DataFrame:
     last = get_last_timestamp(exchange, data_type, symbol, base_dir=DATA_DIR)
@@ -46,7 +49,7 @@ def main() -> None:
     logger.info("=== Phase-0 Pipeline Start ===")
 
     logger.info("Loading Binance perp symbols...")
-    symbols = bn.list_perp_symbols()[:TOP_N_SYMBOLS]
+    symbols = [s for s in bn.list_perp_symbols() if s not in SYMBOL_BLOCKLIST][:TOP_N_SYMBOLS]
     logger.info("Screening %d symbols", len(symbols))
 
     funding_data: dict[str, pd.DataFrame] = {}
