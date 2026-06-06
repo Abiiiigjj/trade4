@@ -11,13 +11,23 @@ logger = logging.getLogger(__name__)
 FUNDING_INTERVALS_PER_DAY = 3  # 8h intervals
 
 
+# Maker-only FDUSD round-trip cost in bps (2× perp_maker entry/exit + slippage + basis + depeg)
+_MAKER_FDUSD_RT_BPS: float = 16.5
+
+# Minimum hold days used for stress-gate calculation
+_STRESS_HOLD_DAYS: int = 7
+
+
 @dataclass
 class ScreenerConfig:
     entry_threshold_per_interval: float = 0.00005   # 0.005% per 8h
     max_slippage_bps: float = 50.0
     position_size_eur: float = 500.0
-    min_pct_positive: float = 0.5
+    min_pct_positive: float = 0.6
     volume_fraction_cap: float = 0.005  # max fraction of 24h volume
+    min_intervals: float = 270.0        # 90 days × 3 intervals/day
+    require_positive_90d: bool = True   # avg_funding_90d must also be positive
+    stress_gate: bool = True            # flip_1x net_edge must be > 0
 
 
 def compute_funding_stats(funding_df: pd.DataFrame) -> dict[str, float]:
@@ -92,10 +102,23 @@ def screen_coins(
             continue
         stats = compute_funding_stats(funding_data[symbol])
 
+        # Hard filter 1: minimum history
+        if stats["n_intervals"] < config.min_intervals:
+            continue
+        # Hard filter 2: both 30d AND 90d must be above threshold
         if stats["avg_funding_30d"] < config.entry_threshold_per_interval:
+            continue
+        if config.require_positive_90d and stats["avg_funding_90d"] < config.entry_threshold_per_interval:
             continue
         if stats["pct_positive_intervals"] < config.min_pct_positive:
             continue
+        # Hard filter 3: stress gate — 30% of funding over 7 days must cover maker FDUSD costs
+        if config.stress_gate:
+            flip_funding_bps = (
+                stats["avg_funding_30d"] * 3 * _STRESS_HOLD_DAYS * 0.3 * 10_000
+            )
+            if flip_funding_bps <= _MAKER_FDUSD_RT_BPS:
+                continue
 
         slippage_bps = 0.0
         if symbol in orderbook_data and not orderbook_data[symbol].empty:

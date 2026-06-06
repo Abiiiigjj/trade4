@@ -57,12 +57,16 @@ def test_screen_coins_filters_low_funding(sample_funding_df, sample_orderbook):
 
 
 def test_screen_coins_passes_good_candidate(sample_funding_df, sample_orderbook):
+    # Disable new strict filters — fixture only has 9 intervals (3 days)
     config = ScreenerConfig(
-        entry_threshold_per_interval=0.00005,  # low threshold → sample passes
+        entry_threshold_per_interval=0.00005,
         max_slippage_bps=50,
         position_size_eur=500,
         min_pct_positive=0.5,
         volume_fraction_cap=0.1,
+        min_intervals=0.0,
+        require_positive_90d=False,
+        stress_gate=False,
     )
     funding_data = {"DOGEUSDT": sample_funding_df}
     orderbook_data = {"DOGEUSDT": sample_orderbook}
@@ -80,6 +84,9 @@ def test_fdusd_flag_set_for_eligible_coins(sample_funding_df, sample_orderbook):
         position_size_eur=500,
         min_pct_positive=0.5,
         volume_fraction_cap=0.1,
+        min_intervals=0.0,
+        require_positive_90d=False,
+        stress_gate=False,
     )
     funding_data = {"DOGEUSDT": sample_funding_df}
     orderbook_data = {"DOGEUSDT": sample_orderbook}

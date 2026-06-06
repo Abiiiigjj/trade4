@@ -25,10 +25,11 @@ DATA_DIR = Path("data")
 REPORT_PATH = Path("output/phase0_report.html")
 IN_SAMPLE_END = pd.Timestamp("2024-12-31", tz="UTC")
 HISTORY_START = pd.Timestamp("2023-01-01", tz="UTC")
-TOP_N_SYMBOLS = 100
 
-# Symbols with no real spot market — delta-neutral entry not possible
-SYMBOL_BLOCKLIST: frozenset[str] = frozenset({"BTCDOMUSDT"})
+# Only FDUSD 0%-spot-fee pairs — the only coins where maker-only cost model works
+FDUSD_UNIVERSE: list[str] = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "LINKUSDT", "BNBUSDT", "XRPUSDT"
+]
 
 
 def _fetch_with_cache(exchange: str, symbol: str, fetcher_fn, data_type: str) -> pd.DataFrame:
@@ -48,9 +49,8 @@ def _fetch_with_cache(exchange: str, symbol: str, fetcher_fn, data_type: str) ->
 def main() -> None:
     logger.info("=== Phase-0 Pipeline Start ===")
 
-    logger.info("Loading Binance perp symbols...")
-    symbols = [s for s in bn.list_perp_symbols() if s not in SYMBOL_BLOCKLIST][:TOP_N_SYMBOLS]
-    logger.info("Screening %d symbols", len(symbols))
+    symbols = FDUSD_UNIVERSE
+    logger.info("Universe: %s", symbols)
 
     funding_data: dict[str, pd.DataFrame] = {}
     orderbook_data: dict[str, pd.DataFrame] = {}
@@ -72,8 +72,11 @@ def main() -> None:
         entry_threshold_per_interval=0.00005,
         max_slippage_bps=50.0,
         position_size_eur=500.0,
-        min_pct_positive=0.55,
+        min_pct_positive=0.60,
         volume_fraction_cap=0.005,
+        min_intervals=270.0,
+        require_positive_90d=True,
+        stress_gate=True,
     )
     screener_df = screen_coins(symbols, funding_data, orderbook_data, ohlcv_data, config)
     logger.info("Screener passed: %d coins", len(screener_df))
@@ -87,16 +90,16 @@ def main() -> None:
         symbol = row["symbol"]
         if symbol not in funding_data or funding_data[symbol].empty:
             continue
-        use_fdusd = bool(row["fdusd_zero_fee"])
+        # All FDUSD universe coins use maker-only + FDUSD 0% spot
         bt_model = CostModel(
             fee_schedule=DEFAULT_FEE_SCHEDULE,
             slippage_entry_bps=5.0,
             slippage_exit_bps=5.0,
             basis_drift_bps=2.0,
-            fdusd_depeg_bps=0.5 if use_fdusd else 0.0,
-            use_fdusd=use_fdusd,
-            use_maker_spot=False,
-            use_maker_perp=False,
+            fdusd_depeg_bps=0.5,
+            use_fdusd=True,
+            use_maker_spot=True,
+            use_maker_perp=True,
         )
         bt_config = BacktestConfig(
             entry_threshold=0.00005,

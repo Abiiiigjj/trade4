@@ -49,14 +49,30 @@
 {% for symbol, result in backtest_results.items() %}
 <h2>2. Backtest: {{ symbol }}</h2>
 
+{% if not result.n_sufficient %}
+<div class="oos-warning">&#x26A0; n={{ result.n_cycles }} Zyklen — unter Mindestschwelle (20). Konfidenzintervall ist breit, Edge statistisch nicht belastbar.</div>
+{% endif %}
+
 <table>
   <tr><th>Metrik</th><th>Wert</th></tr>
-  <tr><td>Zyklen gesamt</td><td>{{ result.n_cycles }}</td></tr>
-  <tr><td>Net P&amp;L (bps)</td><td class="{{ 'pass' if result.net_pnl_bps > 0 else 'fail' }}">{{ "%.1f"|format(result.net_pnl_bps) }}</td></tr>
+  <tr>
+    <td>Zyklen (n)</td>
+    <td class="{{ 'pass' if result.n_sufficient else 'warn' }}">{{ result.n_cycles }}{% if not result.n_sufficient %} ⚠ zu wenig{% endif %}</td>
+  </tr>
+  <tr>
+    <td>Avg Net P&amp;L / Zyklus (bps)</td>
+    <td class="{{ 'pass' if result.avg_pnl_per_cycle > 0 else 'fail' }}">
+      {{ "%.1f"|format(result.avg_pnl_per_cycle) }}
+      {% if result.ci_lo == result.ci_lo %}
+        <span style="color:#6e7681; font-size:0.85em"> [95%-KI: {{ "%.1f"|format(result.ci_lo) }} … {{ "%.1f"|format(result.ci_hi) }}]</span>
+      {% endif %}
+    </td>
+  </tr>
+  <tr><td>Net P&amp;L gesamt (bps)</td><td class="{{ 'pass' if result.net_pnl_bps > 0 else 'fail' }}">{{ "%.1f"|format(result.net_pnl_bps) }}</td></tr>
   <tr><td>Max Drawdown (bps)</td><td class="{{ 'warn' if result.max_drawdown_bps < -50 else 'pass' }}">{{ "%.1f"|format(result.max_drawdown_bps) }}</td></tr>
   <tr><td>% Gate bestanden</td><td>{{ "%.1f"|format(result.pct_gate_passed * 100) }}%</td></tr>
-  <tr><td>Avg Funding erhalten (bps/Zyklus)</td><td>{{ "%.1f"|format(result.avg_funding_bps) }}</td></tr>
-  <tr><td>Avg Kosten (bps/Zyklus)</td><td>{{ "%.1f"|format(result.avg_cost_bps) }}</td></tr>
+  <tr><td>Avg Funding / Zyklus (bps)</td><td>{{ "%.1f"|format(result.avg_funding_bps) }}</td></tr>
+  <tr><td>Avg Kosten / Zyklus (bps)</td><td>{{ "%.1f"|format(result.avg_cost_bps) }}</td></tr>
 </table>
 
 {% if result.equity_chart_b64 %}
