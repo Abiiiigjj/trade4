@@ -111,8 +111,9 @@ Risiko_EUR   = USDT_Gesamtguthaben (Futures Account) × 0,02
 SL_Abstand   = 1,5 × ATR(14)   [in USDT/Coin]
 Qty          = Risiko_EUR / SL_Abstand
 Notional     = Qty × Preis
-Hebel        = Notional / Margin_Allocated  → Deckel: 20x
+Hebel        = Notional / Margin_Allocated
 ```
+Wenn berechneter Hebel > 20x: **Qty wird reduziert** bis Hebel = 20x (Risiko < 2%, kein Reject). Hebel steuert Margin-Effizienz, nicht Gewinn — Gewinn-Hebel ist Qty, nicht Leverage-Zahl.
 
 ---
 
@@ -126,11 +127,13 @@ Hebel        = Notional / Margin_Allocated  → Deckel: 20x
 3. Symbol aktuell nicht im offenen Positions-Pool
 4. Session-Filter aktiv
 
-**Entry:** Market-Order (Priorität: Schnelligkeit)
+**Entry:** Market-Order (Priorität: Schnelligkeit)  
+**Achtung Slippage:** Market-Buy in einen aktiven Pump-Spike hat realistisch 0,1–0,5% Slippage. Das Kostenmodell aus trade4 ist für ruhige Maker-Orders kalibriert und muss für dieses Modul mit Taker-Stress-Slippage (0,3% Worst Case) erweitert werden. Backtest ohne diese Korrektur ist ungültig.
 
 **Exit — Stop-Loss:** Fest −0,8% vom Entry-Preis, sofort als Stop-Market-Order platziert.
 
-**Exit — Take-Profit:** +1,2% vom Entry-Preis, sofort als Limit-Order platziert.
+**Exit — Take-Profit:** +1,2% vom Entry-Preis, sofort als Limit-Order platziert.  
+Netto nach Gebühren + max. Slippage: ~+0,85%. Nur bei RRR > 1:1 trotzdem profitable wenn Win-Rate > 55%.
 
 **Hebel:** 7x fest (niedrig, da Pumps schnell umkehren können).
 
@@ -150,7 +153,8 @@ Wenn nicht erfüllt → Hebel reduzieren bis Bedingung gilt, oder Trade ablehnen
 
 ### 5.3 Daily Loss Circuit Breaker
 - Tagesstart-Kapital wird um 00:00 UTC aus SQLite geladen.
-- Wenn `aktueller_PnL < −3% × Tagesstart-Kapital` → alle offenen Positionen schließen, keine neuen Orders bis 00:00 UTC.
+- Trigger-Basis: **realisierter PnL only** (keine unrealisierten Floating-Losses) — verhindert vorzeitiges Feuern bei temporären Drawdowns in offenen Positionen.
+- Wenn `realisierter_PnL_heute < −3% × Tagesstart-Kapital` → alle offenen Positionen schließen (Market-Order), keine neuen Orders bis 00:00 UTC.
 
 ### 5.4 Session-Filter
 - **Aktive Handelszeiten:** 07:00–11:00 UTC (EU-Open) + 13:00–21:00 UTC (US-Session)
@@ -192,9 +196,13 @@ Events die einen Alert auslösen:
 
 **Datengrundlage:** Binance Futures Kline-Daten (1m + 15m), mindestens 12 Monate historisch.
 
+**Survivorship-Bias-Schutz (kritisch):** Das Symbol-Universum für jeden Backtest-Zeitpunkt muss aus den damals gelisteten Symbolen bestehen, nicht aus den heute aktiven. Backtesting gegen heute's Top-20-Liste enthält Look-Ahead-Bias (gelöschte oder damals illiquide Symbole fehlen). Implementierung: historisches Listing-Datum pro Symbol aus Binance-API ziehen oder manuell pflegen.
+
 **Validierungsstrategie:**
 - In-Sample: Monate 1–9 → Parameteroptimierung (EMA-Längen, RSI-Level, ATR-Multiplier, Pump-Threshold)
 - Out-of-Sample: Monate 10–12 → Validierung ohne Anpassung (Walk-Forward)
+
+**Ehrliche Erwartung:** EMA-Cross und Pump-Chasing sind unter den am häufigsten getesteten Retail-Mustern — und meist nach Kosten netto-negativ. Phase 1 ist kein Formalismus, sondern echter Go/No-Go-Filter. Ein Backtest-Fail ist das erwartete Ergebnis, bis eine echte Edge nachgewiesen ist. Ohne bestandenes OOS-Gate kein Live-Capital.
 
 **Mindestanforderungen für Phase-2-Freigabe:**
 - Sharpe Ratio ≥ 1,5 (annualisiert)
