@@ -41,21 +41,25 @@ PERP_LEVERAGE          = int(os.getenv("PERP_LEVERAGE", "3"))
 EUR_TO_USDT            = float(os.getenv("EUR_TO_USDT", "1.08"))   # update manually or fetch
 HISTORY_START          = pd.Timestamp("2023-01-01", tz="UTC")
 
+_TESTNET_MODE = os.getenv("TRADE4_TESTNET_THRESHOLDS", "0") == "1"
+
 SCREENER_CONFIG = ScreenerConfig(
-    entry_threshold_per_interval=0.00005,
+    # In testnet mode use relaxed threshold to verify full order flow.
+    # Live: keep at 5e-5 (funding must cover round-trip cost).
+    entry_threshold_per_interval=0.00003 if _TESTNET_MODE else 0.00005,
     max_slippage_bps=50.0,
     position_size_eur=NOTIONAL_PER_POS_EUR,
     min_pct_positive=0.60,
     volume_fraction_cap=0.005,
     min_intervals=270.0,
-    require_positive_90d=True,
-    stress_gate=True,
+    require_positive_90d=False if _TESTNET_MODE else True,
+    stress_gate=not _TESTNET_MODE,
 )
 
 # Funding-capture universe — FDUSD symbols first (zero spot fee), rest standard
 UNIVERSE: list[str] = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "LINKUSDT", "BNBUSDT", "XRPUSDT",
-    "AVAXUSDT", "ADAUSDT", "DOTUSDT", "MATICUSDT", "LTCUSDT",
+    "AVAXUSDT", "ADAUSDT", "DOTUSDT", "POLUSDT", "LTCUSDT",
 ]
 
 
@@ -130,7 +134,8 @@ def run_cycle(executor: BinanceExecutor) -> None:
     # 3. Load current positions
     positions = get_open_positions()
     open_syms  = {p.symbol for p in positions}
-    prices     = _current_prices(open_syms | set(screener_df["symbol"].tolist()), executor)
+    screener_symbols = set(screener_df["symbol"].tolist()) if not screener_df.empty else set()
+    prices     = _current_prices(open_syms | screener_symbols, executor)
 
     # 4. Make decisions
     decisions = make_decisions(

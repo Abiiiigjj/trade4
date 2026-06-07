@@ -9,7 +9,7 @@ SESSION="trade4_live"
 
 echo "=== Syncing code to VPS ==="
 rsync -az --exclude='.git' --exclude='.venv' --exclude='.venv-test' \
-      --exclude='data/' --exclude='output/' --exclude='__pycache__' \
+      --exclude='/data/' --exclude='/output/' --exclude='__pycache__' \
       ./ "${VPS}:${REMOTE_DIR}/"
 
 echo "=== Installing dependencies on VPS ==="
