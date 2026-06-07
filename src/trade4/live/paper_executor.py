@@ -54,12 +54,16 @@ class PaperExecutor:
     def spot_balance(self, asset: str) -> float:
         """Returns simulated free balance as USDT-equivalent."""
         if asset in ("USDT", "FDUSD"):
-            # Committed capital is tracked outside; return remaining
-            committed = sum(
-                h["spot_qty"] * self.get_spot_price(sym + "USDT")
-                for sym, h in self._holdings.items()
-                if h.get("spot_qty", 0) > 0
-            )
+            committed = 0.0
+            for sym, h in self._holdings.items():
+                qty = h.get("spot_qty", 0)
+                if qty > 0:
+                    try:
+                        # sym is e.g. "BTCUSDT" — use directly as spot symbol
+                        price = self.get_spot_price(sym)
+                        committed += qty * price
+                    except Exception:
+                        pass
             total_usdt = self._balance_eur * self._eur_to_usdt
             return max(0.0, total_usdt - committed)
         return 0.0
