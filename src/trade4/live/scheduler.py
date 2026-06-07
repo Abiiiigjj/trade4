@@ -241,19 +241,32 @@ def _next_settlement_sleep() -> float:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--testnet", action="store_true",
-                        help="Use Binance testnet (no real orders)")
+                        help="Use Binance testnet (fake market data)")
+    parser.add_argument("--paper", action="store_true",
+                        help="Paper trading: real market data, no real orders")
     parser.add_argument("--once", action="store_true",
                         help="Run one cycle then exit")
     args = parser.parse_args()
 
-    api_key    = os.environ["BINANCE_API_KEY"]
-    api_secret = os.environ["BINANCE_API_SECRET"]
-
     init_db()
-    executor = BinanceExecutor(api_key, api_secret, testnet=args.testnet)
 
-    if args.testnet:
-        logger.info("*** TESTNET MODE — no real orders will be placed ***")
+    if args.paper:
+        from trade4.live.paper_executor import PaperExecutor
+        executor = PaperExecutor(
+            start_balance_eur=float(os.getenv("NOTIONAL_PER_POS_EUR", "500")) * int(os.getenv("MAX_POSITIONS", "4")),
+            eur_to_usdt=EUR_TO_USDT,
+        )
+        logger.info("*** PAPER TRADING — real market data, no real orders ***")
+    elif args.testnet:
+        api_key    = os.environ["BINANCE_API_KEY"]
+        api_secret = os.environ["BINANCE_API_SECRET"]
+        executor = BinanceExecutor(api_key, api_secret, testnet=True)
+        logger.info("*** TESTNET MODE — fake market data ***")
+    else:
+        api_key    = os.environ["BINANCE_API_KEY"]
+        api_secret = os.environ["BINANCE_API_SECRET"]
+        executor = BinanceExecutor(api_key, api_secret, testnet=False)
+        logger.info("*** LIVE MODE — real orders will be placed ***")
 
     if args.once:
         run_cycle(executor)

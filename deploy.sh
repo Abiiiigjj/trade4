@@ -18,18 +18,26 @@ ssh "${VPS}" "cd ${REMOTE_DIR} && python3 -m venv .venv && .venv/bin/pip install
 echo "=== Copying .env ==="
 scp .env "${VPS}:${REMOTE_DIR}/.env"
 
-# Check if testnet flag passed
-TESTNET_FLAG=""
+# Mode flag: --paper (default), --testnet, or --live
+MODE_FLAG="--paper"
 if [[ "${1:-}" == "--testnet" ]]; then
-    TESTNET_FLAG="--testnet"
-    echo "*** TESTNET MODE ***"
+    MODE_FLAG="--testnet"
+    echo "*** TESTNET MODE (fake market data) ***"
+elif [[ "${1:-}" == "--live" ]]; then
+    MODE_FLAG=""
+    echo "*** LIVE MODE — REAL ORDERS WILL BE PLACED ***"
+    read -p "Type 'yes' to confirm live deployment: " CONFIRM
+    [[ "$CONFIRM" == "yes" ]] || { echo "Aborted."; exit 1; }
+else
+    echo "*** PAPER TRADING (real data, no real orders) ***"
 fi
 
 echo "=== Starting tmux session '${SESSION}' on VPS ==="
 ssh "${VPS}" bash << REMOTE
+  mkdir -p ${REMOTE_DIR}/logs
   tmux kill-session -t ${SESSION} 2>/dev/null || true
   tmux new-session -d -s ${SESSION} \
-    "cd ${REMOTE_DIR} && .venv/bin/python -m trade4.live.scheduler ${TESTNET_FLAG} 2>&1 | tee -a logs/live.log"
+    "cd ${REMOTE_DIR} && .venv/bin/python -m trade4.live.scheduler ${MODE_FLAG} 2>&1 | tee -a logs/live.log"
   echo "Session started. Attach with: tmux attach -t ${SESSION}"
 REMOTE
 
