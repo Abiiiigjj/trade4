@@ -115,3 +115,30 @@ def list_perp_symbols() -> list[str]:
         and s.get("quoteAsset") == "USDT"
         and s.get("status") == "TRADING"
     ]
+
+
+def list_perp_symbols_with_onboard() -> dict[str, pd.Timestamp]:
+    """Returns {symbol: onboard_timestamp} for all active USDT-M perpetuals.
+
+    onboardDate from exchangeInfo is used for point-in-time universe filtering
+    in backtests — prevents survivorship bias and look-ahead bias.
+    """
+    data = _get("/fapi/v1/exchangeInfo", {})
+    result: dict[str, pd.Timestamp] = {}
+    for s in data["symbols"]:
+        if (
+            s.get("contractType") == "PERPETUAL"
+            and s.get("quoteAsset") == "USDT"
+            and s.get("status") == "TRADING"
+        ):
+            onboard_ms = int(s.get("onboardDate", 0))
+            result[s["symbol"]] = pd.Timestamp(onboard_ms, unit="ms", tz="UTC")
+    return result
+
+
+def filter_symbols_at_date(
+    symbol_onboard: dict[str, pd.Timestamp],
+    as_of: pd.Timestamp,
+) -> list[str]:
+    """Return symbols that were listed on or before as_of (inclusive)."""
+    return [sym for sym, ts in symbol_onboard.items() if ts <= as_of]

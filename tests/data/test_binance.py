@@ -6,6 +6,8 @@ from trade4.data.binance import (
     fetch_ohlcv,
     fetch_orderbook,
     list_perp_symbols,
+    list_perp_symbols_with_onboard,
+    filter_symbols_at_date,
     FDUSD_ZERO_FEE_BASES,
 )
 
@@ -58,3 +60,72 @@ def test_fetch_ohlcv_returns_dataframe():
         df = fetch_ohlcv("DOGEUSDT", interval="1d", start_ts=pd.Timestamp("2024-01-01", tz="UTC"))
     assert list(df.columns) == ["timestamp", "open", "high", "low", "close", "volume"]
     assert df["timestamp"].dtype == "datetime64[ns, UTC]"
+
+
+def _mock_exchange_info() -> dict:
+    return {
+        "symbols": [
+            {
+                "symbol": "BTCUSDT",
+                "contractType": "PERPETUAL",
+                "quoteAsset": "USDT",
+                "status": "TRADING",
+                "onboardDate": 1569888000000,  # 2019-10-01
+            },
+            {
+                "symbol": "SOLUSDT",
+                "contractType": "PERPETUAL",
+                "quoteAsset": "USDT",
+                "status": "TRADING",
+                "onboardDate": 1623024000000,  # 2021-06-07
+            },
+            {
+                "symbol": "NEWUSDT",
+                "contractType": "PERPETUAL",
+                "quoteAsset": "USDT",
+                "status": "TRADING",
+                "onboardDate": 1748822400000,  # 2025-06-02 (future in backtest)
+            },
+            {
+                "symbol": "BTCDOMUSDT",
+                "contractType": "PERPETUAL",
+                "quoteAsset": "USDT",
+                "status": "SETTLING",  # not TRADING
+                "onboardDate": 1569888000000,
+            },
+        ]
+    }
+
+
+def test_list_perp_symbols_with_onboard_filters_non_trading():
+    with patch("trade4.data.binance._get", return_value=_mock_exchange_info()):
+        result = list_perp_symbols_with_onboard()
+    assert "BTCDOMUSDT" not in result
+    assert "BTCUSDT" in result
+    assert "SOLUSDT" in result
+
+
+def test_list_perp_symbols_with_onboard_returns_timestamps():
+    with patch("trade4.data.binance._get", return_value=_mock_exchange_info()):
+        result = list_perp_symbols_with_onboard()
+    assert isinstance(result["BTCUSDT"], pd.Timestamp)
+    assert result["BTCUSDT"].tzinfo is not None  # UTC-aware
+
+
+def test_filter_symbols_at_date_excludes_future_listings():
+    onboard = {
+        "BTCUSDT": pd.Timestamp("2019-10-01", tz="UTC"),
+        "SOLUSDT": pd.Timestamp("2021-06-07", tz="UTC"),
+        "NEWUSDT": pd.Timestamp("2025-06-02", tz="UTC"),
+    }
+    as_of = pd.Timestamp("2024-01-01", tz="UTC")
+    result = filter_symbols_at_date(onboard, as_of)
+    assert "BTCUSDT" in result
+    assert "SOLUSDT" in result
+    assert "NEWUSDT" not in result
+
+
+def test_filter_symbols_at_date_includes_same_day():
+    onboard = {"SOLUSDT": pd.Timestamp("2024-01-01", tz="UTC")}
+    result = filter_symbols_at_date(onboard, pd.Timestamp("2024-01-01", tz="UTC"))
+    assert "SOLUSDT" in result
