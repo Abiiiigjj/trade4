@@ -131,7 +131,10 @@ def list_perp_symbols_with_onboard() -> dict[str, pd.Timestamp]:
             and s.get("quoteAsset") == "USDT"
             and s.get("status") == "TRADING"
         ):
-            onboard_ms = int(s.get("onboardDate", 0))
+            if "onboardDate" not in s:
+                logger.warning("symbol %s has no onboardDate — skipped from universe", s["symbol"])
+                continue
+            onboard_ms = int(s["onboardDate"])
             result[s["symbol"]] = pd.Timestamp(onboard_ms, unit="ms", tz="UTC")
     return result
 
