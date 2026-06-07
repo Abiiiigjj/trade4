@@ -134,8 +134,17 @@ def make_decisions(
         screener_df, symbols_after_exits, max_positions, notional_per_position_eur
     )
     for e in entries:
+        sym = e["symbol"]
+        fd = funding_data.get(sym, pd.DataFrame())
+        if fd.empty:
+            latest_rate = 0.0
+        else:
+            latest_rate = float(fd.sort_values("timestamp").iloc[-1]["funding_rate"])
+        if latest_rate <= EXIT_FUNDING_THRESHOLD:
+            logger.info("Skipping open %s — current funding %.5f below threshold", sym, latest_rate)
+            continue
         decisions.append(PositionDecision(
-            e["symbol"], "open",
+            sym, "open",
             f"screener_top (fdusd={e['fdusd_eligible']})",
         ))
 
