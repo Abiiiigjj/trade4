@@ -63,3 +63,21 @@ def gate_passed(expected_funding_bps: float, cost_model: CostModel) -> bool:
         net_edge >= MIN_NET_EDGE_BPS
         and expected_funding_bps >= FUNDING_TO_COST_RATIO * cost
     )
+
+
+@dataclass(frozen=True)
+class ScalperCostModel:
+    """Cost model for taker-only scalping trades on Binance USDT-M Futures."""
+    perp_taker_bps: float = 5.0        # Binance Futures taker fee
+    calm_slippage_bps: float = 5.0     # Normal taker entry slippage
+    stress_slippage_bps: float = 30.0  # Market order into volume spike (pump scanner)
+
+
+def scalper_round_trip_bps(model: ScalperCostModel, stressed: bool = False) -> float:
+    """Total round-trip cost in bps for one scalping trade.
+
+    stressed=True applies pump-scanner slippage (market buy into spike).
+    Includes: perp taker fee × 2 (entry + exit) + slippage × 2.
+    """
+    slippage = model.stress_slippage_bps if stressed else model.calm_slippage_bps
+    return 2 * model.perp_taker_bps + 2 * slippage
