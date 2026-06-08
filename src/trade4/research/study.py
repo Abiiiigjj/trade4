@@ -13,6 +13,7 @@ Design notes (from the Phase-2 review):
   both measured over the full-panel horizon.
 * The **OOS gate** is judged separately by the multi-window walk-forward.
 """
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -45,12 +46,12 @@ _SPECS = {
 }
 
 
-def _full_panel_config_returns(panel: Panel) -> pd.DataFrame:
+def _full_panel_config_returns(panel: Panel, specs: dict[str, Any]) -> pd.DataFrame:
     """Run every (strategy x param) config over the full panel -> index-aligned matrix.
 
     This is the trial set for DSR (count + variance) and PBO (CSCV matrix)."""
     cols: dict[str, pd.Series] = {}
-    for name, (factory, grid, cfg) in _SPECS.items():
+    for name, (factory, grid, cfg) in specs.items():
         for params in grid:
             strat = factory(**params)
             res = run_portfolio_backtest(panel, strat.generate_target_weights(panel), cfg)
@@ -67,10 +68,19 @@ def _per_period_sharpe_variance(matrix: pd.DataFrame) -> float:
     return float(np.var(srs, ddof=1)) if len(srs) > 1 else 0.0
 
 
+def _specs(cost_bps_override: float | None) -> dict[str, Any]:
+    """The strategy specs, optionally with cost_bps overridden (e.g. 0.0 for a gross run)."""
+    if cost_bps_override is None:
+        return _SPECS
+    return {name: (factory, grid, replace(cfg, cost_bps=cost_bps_override))
+            for name, (factory, grid, cfg) in _SPECS.items()}
+
+
 def run_study(panel: Panel, seed: int = 0, is_bars: int = 180, oos_bars: int = 90,
-              pbo_splits: int = 8) -> dict[str, Any]:
+              pbo_splits: int = 8, cost_bps_override: float | None = None) -> dict[str, Any]:
+    specs = _specs(cost_bps_override)
     # --- trial set over a single common window (full panel): DSR inputs + PBO matrix ---
-    matrix = _full_panel_config_returns(panel)
+    matrix = _full_panel_config_returns(panel, specs)
     n_trials = matrix.shape[1]
     trial_var = _per_period_sharpe_variance(matrix)
     pbo = probability_of_backtest_overfitting(matrix, n_splits=pbo_splits)
@@ -79,7 +89,7 @@ def run_study(panel: Panel, seed: int = 0, is_bars: int = 180, oos_bars: int = 9
     registry = TrialRegistry()
     tearsheets: dict[str, Any] = {}
     ranking: list[tuple[str, float]] = []
-    for name, (factory, grid, cfg) in _SPECS.items():
+    for name, (factory, grid, cfg) in specs.items():
         windows = walk_forward(panel, factory, grid, cfg, is_bars, oos_bars, registry)
         ts = build_tearsheet(factory(**grid[0]), panel, cfg,
                              n_trials=n_trials, trial_sharpe_var=trial_var)

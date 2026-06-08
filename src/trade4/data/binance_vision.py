@@ -10,9 +10,11 @@ URL patterns (USDT-M futures):
 """
 import io
 import logging
+import os
 import urllib.error
 import urllib.request
 import zipfile
+from pathlib import Path
 
 import pandas as pd
 
@@ -20,6 +22,27 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://data.binance.vision/data/futures/um/monthly"
 _TIMEOUT = 30
+
+# Parquet cache: monthly vision dumps are immutable history, so cache them (incl. the
+# empty 404 results) to avoid re-downloading ~1900 files on every study run.
+_CACHE_DIR = Path(os.environ.get(
+    "TRADE4_VISION_CACHE", str(Path.home() / ".cache" / "trade4_vision")))
+
+
+def _cache_get(key: str) -> pd.DataFrame | None:
+    p = _CACHE_DIR / f"{key}.parquet"
+    if p.exists():
+        try:
+            return pd.read_parquet(p)
+        except Exception:  # corrupt cache file -> re-fetch
+            logger.warning("corrupt cache, refetching: %s", p)
+    return None
+
+
+def _cache_put(key: str, df: pd.DataFrame) -> None:
+    p = _CACHE_DIR / f"{key}.parquet"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(p, index=False)
 
 # kline column order in the vision dumps
 _KLINE_COLS = [
@@ -52,23 +75,30 @@ def fetch_funding_month(symbol: str, year: int, month: int) -> pd.DataFrame:
 
     Empty frame if the dump does not exist (symbol not listed that month).
     """
+    key = f"funding/{symbol}-{year}-{month:02d}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
     url = f"{_BASE}/fundingRate/{symbol}/{symbol}-fundingRate-{year}-{month:02d}.zip"
     raw = _download_csv(url)
     if raw is None or raw.empty:
-        return pd.DataFrame({
+        result = pd.DataFrame({
             "timestamp": pd.Series([], dtype="datetime64[ns, UTC]"),
             "funding_rate": pd.Series([], dtype="float64"),
             "interval_hours": pd.Series([], dtype="int64"),
         })
-    # columns: calc_time, funding_interval_hours, last_funding_rate
-    df = pd.DataFrame({
-        "timestamp": pd.to_datetime(raw.iloc[:, 0].astype("int64"), unit="ms", utc=True),
-        "interval_hours": raw.iloc[:, 1].astype("int64"),
-        "funding_rate": raw.iloc[:, -1].astype(float),
-    })
-    return df[["timestamp", "funding_rate", "interval_hours"]].sort_values(
-        "timestamp"
-    ).reset_index(drop=True)
+    else:
+        # columns: calc_time, funding_interval_hours, last_funding_rate
+        df = pd.DataFrame({
+            "timestamp": pd.to_datetime(raw.iloc[:, 0].astype("int64"), unit="ms", utc=True),
+            "interval_hours": raw.iloc[:, 1].astype("int64"),
+            "funding_rate": raw.iloc[:, -1].astype(float),
+        })
+        result = df[["timestamp", "funding_rate", "interval_hours"]].sort_values(
+            "timestamp").reset_index(drop=True)
+    _cache_put(key, result)
+    return result
 
 
 def fetch_klines_month(
@@ -78,24 +108,31 @@ def fetch_klines_month(
 
     Empty frame if the dump does not exist.
     """
+    key = f"klines_{interval}/{symbol}-{year}-{month:02d}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
     url = f"{_BASE}/klines/{symbol}/{interval}/{symbol}-{interval}-{year}-{month:02d}.zip"
     raw = _download_csv(url)
     if raw is None or raw.empty:
         cols = {"timestamp": pd.Series([], dtype="datetime64[ns, UTC]")}
         cols.update({c: pd.Series([], dtype="float64")
                      for c in ("open", "high", "low", "close", "volume")})
-        return pd.DataFrame(cols)
-    raw = raw.iloc[:, : len(_KLINE_COLS)].copy()
-    raw.columns = _KLINE_COLS
-    out = pd.DataFrame({
-        "timestamp": pd.to_datetime(raw["open_time"].astype("int64"), unit="ms", utc=True),
-        "open": raw["open"].astype(float),
-        "high": raw["high"].astype(float),
-        "low": raw["low"].astype(float),
-        "close": raw["close"].astype(float),
-        "volume": raw["volume"].astype(float),
-    })
-    return out.sort_values("timestamp").reset_index(drop=True)
+        result = pd.DataFrame(cols)
+    else:
+        raw = raw.iloc[:, : len(_KLINE_COLS)].copy()
+        raw.columns = _KLINE_COLS
+        result = pd.DataFrame({
+            "timestamp": pd.to_datetime(raw["open_time"].astype("int64"), unit="ms", utc=True),
+            "open": raw["open"].astype(float),
+            "high": raw["high"].astype(float),
+            "low": raw["low"].astype(float),
+            "close": raw["close"].astype(float),
+            "volume": raw["volume"].astype(float),
+        }).sort_values("timestamp").reset_index(drop=True)
+    _cache_put(key, result)
+    return result
 
 
 def infer_listing_window(
