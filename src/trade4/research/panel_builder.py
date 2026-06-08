@@ -26,8 +26,15 @@ def build_panel(
     kl_close: dict[str, pd.Series] = {}
     starts, ends = [], []
     for s in symbols:
-        f = funding[s].set_index("timestamp")["funding_rate"].sort_index()
-        k = klines[s].set_index("timestamp")["close"].sort_index()
+        # Coerce timestamp to a tz-aware DatetimeIndex: concatenating empty (404)
+        # monthly frames can leave the column as object dtype for ragged/late-listing
+        # symbols, which would otherwise yield a plain Index without .ceil/.floor.
+        fdf = funding[s].copy()
+        fdf["timestamp"] = pd.to_datetime(fdf["timestamp"], utc=True)
+        kdf = klines[s].copy()
+        kdf["timestamp"] = pd.to_datetime(kdf["timestamp"], utc=True)
+        f = fdf.set_index("timestamp")["funding_rate"].sort_index()
+        k = kdf.set_index("timestamp")["close"].sort_index()
         fund_ser[s], kl_close[s] = f, k
         lo = min([x.index.min() for x in (f, k) if not x.empty])
         hi = max([x.index.max() for x in (f, k) if not x.empty])

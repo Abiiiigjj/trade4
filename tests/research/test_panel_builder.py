@@ -29,6 +29,23 @@ def test_builder_handles_ms_resolution_and_ragged_universe():
     assert not panel.funding.isna().any().any()
 
 
+def test_builder_coerces_object_dtype_timestamps():
+    """Regression: concatenating empty (404) monthly frames for ragged/late-listing
+    symbols can leave the timestamp column as object dtype -> set_index yields a plain
+    Index without .ceil -> crash. build_panel must coerce. This was the second real-run
+    bug (after the resolution mismatch)."""
+    ts = pd.date_range("2023-01-01", periods=6, freq="8h", tz="UTC")
+    # object-dtype timestamp column (what a leading-empty concat produces)
+    f = pd.DataFrame({"timestamp": pd.Series(list(ts), dtype="object"),
+                      "funding_rate": [0.0001] * 6})
+    k = pd.DataFrame({"timestamp": pd.Series(list(pd.date_range(
+                        "2023-01-01", periods=48, freq="1h", tz="UTC")), dtype="object"),
+                      "close": np.linspace(100, 110, 48)})
+    panel = build_panel(funding={"A": f}, klines={"A": k}, bar="8h")
+    assert panel.symbols == ["A"]
+    assert not panel.funding.isna().any().any()
+
+
 def test_builder_aligns_misaligned_funding_schedules():
     # A funds every 8h from day 1; B funds every 4h and lists 1 day late.
     a_fund = pd.DataFrame({

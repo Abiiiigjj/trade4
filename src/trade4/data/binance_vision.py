@@ -55,7 +55,11 @@ def fetch_funding_month(symbol: str, year: int, month: int) -> pd.DataFrame:
     url = f"{_BASE}/fundingRate/{symbol}/{symbol}-fundingRate-{year}-{month:02d}.zip"
     raw = _download_csv(url)
     if raw is None or raw.empty:
-        return pd.DataFrame(columns=["timestamp", "funding_rate", "interval_hours"])
+        return pd.DataFrame({
+            "timestamp": pd.Series([], dtype="datetime64[ns, UTC]"),
+            "funding_rate": pd.Series([], dtype="float64"),
+            "interval_hours": pd.Series([], dtype="int64"),
+        })
     # columns: calc_time, funding_interval_hours, last_funding_rate
     df = pd.DataFrame({
         "timestamp": pd.to_datetime(raw.iloc[:, 0].astype("int64"), unit="ms", utc=True),
@@ -77,7 +81,10 @@ def fetch_klines_month(
     url = f"{_BASE}/klines/{symbol}/{interval}/{symbol}-{interval}-{year}-{month:02d}.zip"
     raw = _download_csv(url)
     if raw is None or raw.empty:
-        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        cols = {"timestamp": pd.Series([], dtype="datetime64[ns, UTC]")}
+        cols.update({c: pd.Series([], dtype="float64")
+                     for c in ("open", "high", "low", "close", "volume")})
+        return pd.DataFrame(cols)
     raw = raw.iloc[:, : len(_KLINE_COLS)].copy()
     raw.columns = _KLINE_COLS
     out = pd.DataFrame({
