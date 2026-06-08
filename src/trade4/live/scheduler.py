@@ -101,7 +101,9 @@ def _net_pnl_for_position(
     if not fd.empty:
         mask = fd["timestamp"] >= pd.Timestamp(position.opened_at)
         collected_rates = fd[mask]["funding_rate"].sum()
-        funding_bps = collected_rates * position.perp_qty * position.perp_entry_price / 100
+        # FIX: Binance fundingRate is already decimal; rate*notional = USDT.
+        # Previous /100 understated funding income 100x. NOTE: USDT, not bps.
+        funding_bps = collected_rates * position.perp_qty * position.perp_entry_price
     else:
         funding_bps = 0.0
 
