@@ -32,5 +32,8 @@ class PeriodicRebalance(Strategy):
         keep = pd.Series(False, index=panel.times)
         keep.iloc[::self.every] = True  # bar 0, every, 2*every, ... are rebalance bars
         held = w.copy()
-        held.loc[~keep] = np.nan         # blank non-rebalance rows
-        return held.ffill().fillna(0.0)  # hold last rebalance weights
+        held.loc[~keep] = np.nan          # blank non-rebalance rows
+        held = held.ffill().fillna(0.0)   # hold last rebalance weights
+        # force-close any held position in a symbol that delists mid-hold: you cannot
+        # hold an untradeable symbol. Causal — uses only tradeable[t] (close[t]).
+        return held.where(panel.tradeable, 0.0)
