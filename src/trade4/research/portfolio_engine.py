@@ -28,6 +28,7 @@ class EngineConfig:
     cost_bps: float = 5.0          # one-way fee + slippage per unit notional traded
     funding_enabled: bool = True
     cost_multiplier: float = 1.0   # cost-sensitivity sweep (1x / 2x / 3x)
+    price_pnl_enabled: bool = True  # False = delta-neutral mode (carry leg hedged by spot)
 
 
 @dataclass
@@ -54,8 +55,13 @@ def run_portfolio_backtest(
 
     w_prev = w.shift(1).fillna(0.0)
 
-    asset_ret = panel.close.pct_change(fill_method=None).fillna(0.0)
-    price_pnl = (w_prev * asset_ret).sum(axis=1)
+    if cfg.price_pnl_enabled:
+        asset_ret = panel.close.pct_change(fill_method=None).fillna(0.0)
+        price_pnl = (w_prev * asset_ret).sum(axis=1)
+    else:
+        # delta-neutral mode: the directional perp leg is hedged by a spot leg of
+        # equal notional, so price PnL cancels (residual basis drift lives in costs).
+        price_pnl = pd.Series(0.0, index=panel.times)
 
     if cfg.funding_enabled:
         funding_pnl = (-w_prev * panel.funding.fillna(0.0)).sum(axis=1)

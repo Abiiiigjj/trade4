@@ -42,6 +42,20 @@ def test_known_answer_funding_only():
     assert abs(res.funding_pnl.sum() - 0.03) < 1e-9
 
 
+def test_delta_neutral_mode_suppresses_price_pnl():
+    # +10% price move, short 1 unit, delta-neutral -> price PnL hedged away,
+    # only funding (+1% on short = +0.01) remains.
+    t = pd.date_range("2023-01-01", periods=2, freq="8h", tz="UTC")
+    close = pd.DataFrame({"A": [100.0, 110.0]}, index=t)
+    funding = pd.DataFrame({"A": [0.0, 0.01]}, index=t)
+    panel = Panel(close=close, funding=funding)
+    weights = pd.DataFrame({"A": [-1.0, -1.0]}, index=t)
+    cfg = EngineConfig(cost_bps=0.0, funding_enabled=True, price_pnl_enabled=False)
+    res = run_portfolio_backtest(panel, weights, cfg)
+    # net return = funding only (+0.01), NOT the -10% the naked short would have lost
+    assert abs(res.returns.sum() - 0.01) < 1e-9
+
+
 def test_long_pays_positive_funding():
     # long(w=+1), rate=+0.01 -> funding_pnl = -1*0.01 = -0.01 (long PAYS)
     t = pd.date_range("2023-01-01", periods=2, freq="8h", tz="UTC")
