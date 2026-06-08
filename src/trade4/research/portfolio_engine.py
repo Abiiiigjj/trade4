@@ -29,6 +29,7 @@ class EngineConfig:
     funding_enabled: bool = True
     cost_multiplier: float = 1.0   # cost-sensitivity sweep (1x / 2x / 3x)
     price_pnl_enabled: bool = True  # False = delta-neutral mode (carry leg hedged by spot)
+    n_legs: int = 1                 # 2 for delta-neutral carry (spot + perp both traded)
 
 
 @dataclass
@@ -68,7 +69,7 @@ def run_portfolio_backtest(
     else:
         funding_pnl = pd.Series(0.0, index=panel.times)
 
-    cost = turnover_cost(w, cfg.cost_bps, cfg.cost_multiplier)
+    cost = turnover_cost(w, cfg.cost_bps, cfg.cost_multiplier, cfg.n_legs)
     turnover = w.fillna(0.0).diff().abs()
     turnover.iloc[0] = w.iloc[0].abs()
     turnover_series = turnover.sum(axis=1)

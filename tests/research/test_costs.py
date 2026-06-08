@@ -19,6 +19,14 @@ def test_turnover_cost_charges_initial_buildup():
     assert abs(cost.iloc[0] - 1.0 * 10.0 / 10_000) < 1e-12
 
 
+def test_turnover_cost_two_legs_doubles():
+    t = pd.date_range("2023-01-01", periods=2, freq="8h", tz="UTC")
+    w = pd.DataFrame({"A": [0.0, 1.0]}, index=t)
+    one = turnover_cost(w, cost_bps=10.0, n_legs=1)
+    two = turnover_cost(w, cost_bps=10.0, n_legs=2)
+    assert abs(two.iloc[1] - 2.0 * one.iloc[1]) < 1e-15
+
+
 def test_cost_multiplier_scales_linearly():
     t = pd.date_range("2023-01-01", periods=2, freq="8h", tz="UTC")
     w = pd.DataFrame({"A": [0.0, 1.0]}, index=t)
