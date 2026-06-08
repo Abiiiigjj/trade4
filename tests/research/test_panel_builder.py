@@ -4,6 +4,31 @@ import pandas as pd
 from trade4.research.panel_builder import build_panel
 
 
+def test_builder_handles_ms_resolution_and_ragged_universe():
+    """Regression: real fetches carry millisecond-resolution timestamps
+    (pd.to_datetime(unit='ms')), while date_range's grid is nanosecond. The old
+    np.searchsorted-on-.values path crashed on that resolution mismatch under pandas
+    3.0 ('can't compare offset-naive and offset-aware'). Build a ragged 3-symbol
+    universe with ms-resolution timestamps and assert it builds cleanly."""
+    def _ms(start, periods, freq):
+        return pd.date_range(start, periods=periods, freq=freq, tz="UTC").as_unit("ms")
+
+    funding, klines = {}, {}
+    specs = [("A", "2022-01-01", 200), ("B", "2022-06-01", 150), ("C", "2023-01-01", 100)]
+    for name, start, n in specs:
+        funding[name] = pd.DataFrame({"timestamp": _ms(start, n, "8h"),
+                                      "funding_rate": [0.0001] * n})
+        klines[name] = pd.DataFrame({"timestamp": _ms(start, n * 8, "1h"),
+                                     "close": np.linspace(100, 110, n * 8)})
+
+    panel = build_panel(funding, klines, bar="8h")
+    assert set(panel.symbols) == {"A", "B", "C"}
+    # late lister C is untradeable at the universe start (survivorship control)
+    assert panel.tradeable.loc[panel.times[0], "C"] == False  # noqa: E712
+    assert panel.tradeable["A"].any()  # A trades somewhere
+    assert not panel.funding.isna().any().any()
+
+
 def test_builder_aligns_misaligned_funding_schedules():
     # A funds every 8h from day 1; B funds every 4h and lists 1 day late.
     a_fund = pd.DataFrame({
