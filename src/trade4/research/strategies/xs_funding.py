@@ -17,6 +17,7 @@ from trade4.research.panel import Panel
 class XSFunding(Strategy):
     quantile: float = 0.25
     lookback: int = 3
+    top_k: int | None = None  # if set, use exactly K names per side (concentrated/tradeable)
     name: str = "xs_funding"
 
     def generate_target_weights(self, panel: Panel) -> pd.DataFrame:
@@ -27,7 +28,10 @@ class XSFunding(Strategy):
             row = signal.loc[t].dropna()
             if len(row) < 2:
                 continue
-            n_side = max(1, int(len(row) * self.quantile))
+            if self.top_k is not None:
+                n_side = min(self.top_k, len(row) // 2)
+            else:
+                n_side = max(1, int(len(row) * self.quantile))
             ordered = row.sort_values()
             longs = ordered.index[:n_side]    # lowest funding
             shorts = ordered.index[-n_side:]  # highest funding

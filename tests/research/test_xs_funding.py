@@ -24,6 +24,17 @@ def test_xs_funding_is_dollar_neutral():
     assert abs(w.iloc[-1].sum()) < 1e-9
 
 
+def test_xs_funding_top_k_holds_exactly_k_per_side():
+    t = pd.date_range("2023-01-01", periods=3, freq="8h", tz="UTC")
+    close = pd.DataFrame(100.0, index=t, columns=[f"S{i}" for i in range(8)])
+    # distinct funding so ranking is unambiguous
+    funding = pd.DataFrame({f"S{i}": (i - 4) * 0.0001 for i in range(8)}, index=t)
+    w = XSFunding(top_k=2, lookback=1).generate_target_weights(
+        Panel(close=close, funding=funding)).iloc[-1]
+    assert (w > 0).sum() == 2 and (w < 0).sum() == 2  # exactly 2 long + 2 short
+    assert abs(w.sum()) < 1e-12  # dollar-neutral
+
+
 def test_xs_funding_longs_lowest_shorts_highest():
     t = pd.date_range("2023-01-01", periods=5, freq="8h", tz="UTC")
     close = pd.DataFrame(100.0, index=t, columns=["A", "B", "C"])
