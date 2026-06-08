@@ -28,6 +28,7 @@ from trade4.research.pbo import probability_of_backtest_overfitting
 from trade4.research.strategies.funding_carry import FundingCarry
 from trade4.research.strategies.xs_funding import XSFunding
 from trade4.research.strategies.xs_momentum import XSMomentum
+from trade4.research.strategies.periodic import PeriodicRebalance
 
 _CAPACITY_CAVEAT = (
     "Results are 'edge at scale after costs'. A 30-40 name dollar-neutral perp "
@@ -68,17 +69,26 @@ def _per_period_sharpe_variance(matrix: pd.DataFrame) -> float:
     return float(np.var(srs, ddof=1)) if len(srs) > 1 else 0.0
 
 
-def _specs(cost_bps_override: float | None) -> dict[str, Any]:
-    """The strategy specs, optionally with cost_bps overridden (e.g. 0.0 for a gross run)."""
-    if cost_bps_override is None:
-        return _SPECS
-    return {name: (factory, grid, replace(cfg, cost_bps=cost_bps_override))
-            for name, (factory, grid, cfg) in _SPECS.items()}
+def _specs(cost_bps_override: float | None,
+           rebalance_every: int | None) -> dict[str, Any]:
+    """The strategy specs, optionally with cost_bps overridden (0.0 = gross run) and/or
+    every strategy wrapped in a periodic-rebalance (low-turnover) shell."""
+    out: dict[str, Any] = {}
+    for name, (factory, grid, cfg) in _SPECS.items():
+        if cost_bps_override is not None:
+            cfg = replace(cfg, cost_bps=cost_bps_override)
+        if rebalance_every is not None:
+            def wrapped(_bf=factory, _ev=rebalance_every, **params):
+                return PeriodicRebalance(base=_bf(**params), every=_ev)
+            factory = wrapped
+        out[name] = (factory, grid, cfg)
+    return out
 
 
 def run_study(panel: Panel, seed: int = 0, is_bars: int = 180, oos_bars: int = 90,
-              pbo_splits: int = 8, cost_bps_override: float | None = None) -> dict[str, Any]:
-    specs = _specs(cost_bps_override)
+              pbo_splits: int = 8, cost_bps_override: float | None = None,
+              rebalance_every: int | None = None) -> dict[str, Any]:
+    specs = _specs(cost_bps_override, rebalance_every)
     # --- trial set over a single common window (full panel): DSR inputs + PBO matrix ---
     matrix = _full_panel_config_returns(panel, specs)
     n_trials = matrix.shape[1]

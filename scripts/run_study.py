@@ -54,6 +54,8 @@ def main() -> None:
     ap.add_argument("--end", default="2025-06")
     ap.add_argument("--cost-bps", type=float, default=None,
                     help="override one-way cost for all strategies (0 = gross run)")
+    ap.add_argument("--rebalance-every", type=int, default=None,
+                    help="hold weights between rebalances (bars; 21 = weekly on 8h) -> low turnover")
     ap.add_argument("--json", action="store_true", help="print result as JSON")
     args = ap.parse_args()
 
@@ -77,8 +79,11 @@ def main() -> None:
     logger.info("panel: %d bars x %d symbols", len(panel.times), len(panel.symbols))
 
     if args.cost_bps is not None:
-        logger.info("GROSS run: cost_bps overridden to %.1f", args.cost_bps)
-    result = run_study(panel, seed=0, cost_bps_override=args.cost_bps)
+        logger.info("cost_bps overridden to %.1f", args.cost_bps)
+    if args.rebalance_every is not None:
+        logger.info("low-turnover: rebalance every %d bars", args.rebalance_every)
+    result = run_study(panel, seed=0, cost_bps_override=args.cost_bps,
+                       rebalance_every=args.rebalance_every)
 
     if args.json:
         print(json.dumps({k: v for k, v in result.items() if k != "tearsheets"}, default=str, indent=2))
