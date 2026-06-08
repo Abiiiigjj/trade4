@@ -18,8 +18,13 @@ from trade4.research.strategies.xs_funding import XSFunding
 from trade4.research.strategies.funding_carry import FundingCarry
 from trade4.research.strategies.periodic import PeriodicRebalance
 from trade4.research.blend import run_blend, BlendComponent
+from trade4.research.overlay import vol_target, releveraging_cost
 from trade4.research.metrics import sharpe_ratio, max_drawdown
 from scripts.run_study import DEFAULT_UNIVERSE, _months, _load
+
+# a-priori overlay params (NOT tuned on the data)
+TARGET_VOL, VOL_LOOKBACK, MAX_LEV = 0.10, 30, 2.0
+RELEV_COST_BPS = 10.0  # conservative: re-levering trades both legs (2 x 5bps)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("blend")
@@ -78,6 +83,25 @@ def main() -> None:
         print(f"  {int(a*100)}/{int((1-a)*100)} xs/carry: "
               f"Sharpe={sharpe_ratio(b.returns):+.2f}  maxDD={max_drawdown(b.equity):.1%}  "
               f"net={ (b.equity.iloc[-1]-1)*1e4:+6.0f}bp")
+
+    def overlay(returns, target=TARGET_VOL, lb=VOL_LOOKBACK, lev=MAX_LEV):
+        scaled, exp = vol_target(returns, target, lb, lev)
+        net = scaled - releveraging_cost(exp, RELEV_COST_BPS)
+        return net, (1.0 + net).cumprod()
+
+    print("\n=== Drawdown overlay (vol-target 10%, lookback 30, max 2x, net of re-lever cost) ===")
+    base = blend()  # 70/30 blend, 1x cost
+    _row("BLEND raw", base.returns, base.equity)
+    ov_r, ov_eq = overlay(base.returns)
+    _row("BLEND + vol-target", ov_r, ov_eq)
+
+    print("\n=== Overlay parameter sensitivity (diagnostic, NOT optimised) ===")
+    for target in (0.08, 0.10, 0.12):
+        for lb in (20, 30, 45):
+            r, eq = overlay(base.returns, target=target, lb=lb)
+            print(f"  target={target:.0%} lookback={lb:>2}: "
+                  f"Sharpe={sharpe_ratio(r):+.2f}  maxDD={max_drawdown(eq):.1%}  "
+                  f"net={ (eq.iloc[-1]-1)*1e4:+6.0f}bp")
 
 
 if __name__ == "__main__":
