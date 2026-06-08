@@ -35,7 +35,6 @@ def build_panel(
         ends.append(hi)
 
     grid = pd.date_range(min(starts).floor(bar), max(ends).ceil(bar), freq=bar)
-    bar_td = pd.Timedelta(bar)
 
     close_cols, funding_cols = {}, {}
     for s in symbols:
@@ -46,16 +45,16 @@ def build_panel(
         close_cols[s] = c
 
         # sum funding events into the grid bar that closes them: event at ts belongs
-        # to bar b if b - bar_td < ts <= b (right-closed).
+        # to bar b if b - bar_td < ts <= b (right-closed). ceil(bar) maps each event
+        # to the smallest grid point >= ts (tz-safe, unlike numpy searchsorted on
+        # tz-aware .values which breaks under pandas 3.0).
         f = fund_ser[s]
-        fc = pd.Series(0.0, index=grid)
-        if not f.empty:
-            # bar label = ceil to grid; assign each event to its closing bar
-            pos = np.searchsorted(grid.values, f.index.values, side="left")
-            pos = np.clip(pos, 0, len(grid) - 1)
-            for p, val in zip(pos, f.values):
-                fc.iloc[p] += val
-        funding_cols[s] = fc
+        if f.empty:
+            funding_cols[s] = pd.Series(0.0, index=grid)
+        else:
+            closing = f.index.ceil(bar)
+            summed = f.groupby(closing).sum()
+            funding_cols[s] = summed.reindex(grid, fill_value=0.0)
 
     close = pd.DataFrame(close_cols, index=grid)
     fund = pd.DataFrame(funding_cols, index=grid)
