@@ -1108,6 +1108,21 @@ git commit -m "feat(research): cross-sectional momentum strategy"
 
 **Files:** Create `src/trade4/research/study.py`, `tests/research/test_study.py`
 
+> **Phase-2 review carry-forward (must address here):**
+> 1. **PBO matrix source.** `TrialRegistry.pnl_matrix()` unions per-`{params×window}` IS
+>    series with *non-overlapping* indices → mostly-NaN matrix → `dropna(axis=1)` makes PBO
+>    degenerate/`nan`. PBO needs **equal-length, index-aligned** config PnLs: build the PBO
+>    matrix from a SINGLE common window (run every param config over one fixed slice), not the
+>    cross-window registry. Add a dedicated helper + a test that the matrix has no NaNs and PBO
+>    is finite.
+> 2. **Wire PBO into `run_study`.** The planned `run_study` computes DSR but never calls
+>    `probability_of_backtest_overfitting`; the verdict promises PBO. Add it to the result dict
+>    and the test.
+> 3. **DSR scope (minor).** `build_tearsheet` deflates the full-panel Sharpe using
+>    `trial_sharpe_var` measured on window Sharpes — mismatch inflates V→SR0, making DSR more
+>    conservative (safe direction). Tighten so the DSR number means exactly one thing: measure
+>    V and the deflated Sharpe over the same horizon (either both full-panel or both per-window).
+
 - [ ] **Step 1: Write the failing test (mechanics on a synthetic universe)**
 
 ```python
