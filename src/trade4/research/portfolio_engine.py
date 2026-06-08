@@ -123,7 +123,13 @@ def assert_causal(
         shape = (n_fut, len(panel.symbols))
         close2.loc[fut] = close2.loc[fut].to_numpy() * rng.uniform(0.1, 3.0, shape)
         fund2.loc[fut] = rng.uniform(-0.01, 0.01, shape)
-        oi2 = panel.open_interest.copy() if panel.open_interest is not None else None
+        # The tripwire must perturb EVERY field the Panel exposes, else it gives only
+        # partial protection. open_interest is scrambled too where present.
+        if panel.open_interest is not None:
+            oi2 = panel.open_interest.copy()
+            oi2.loc[fut] = oi2.loc[fut].to_numpy() * rng.uniform(0.1, 3.0, shape)
+        else:
+            oi2 = None
         perturbed = Panel(close=close2, funding=fund2, open_interest=oi2)
         w2 = strategy.generate_target_weights(perturbed).reindex(
             index=panel.times, columns=panel.symbols

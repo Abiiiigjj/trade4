@@ -113,3 +113,28 @@ def test_tripwire_catches_lookahead():
 
 def test_tripwire_passes_honest():
     assert_causal(_HonestStrategy(), _toy_panel())
+
+
+class _OICheatStrategy(Strategy):
+    name = "oi_cheat"
+
+    def generate_target_weights(self, panel):
+        # peeks at FUTURE open interest
+        fwd_oi = panel.open_interest.shift(-1)
+        return (fwd_oi > panel.open_interest).astype(float) - 0.5
+
+
+def _toy_panel_with_oi(n=12):
+    t = pd.date_range("2023-01-01", periods=n, freq="8h", tz="UTC")
+    rng = np.random.default_rng(0)
+    px = 100 * (1 + pd.DataFrame(rng.normal(0, 0.01, (n, 3)),
+                                 index=t, columns=["A", "B", "C"])).cumprod()
+    fund = pd.DataFrame(0.0, index=t, columns=["A", "B", "C"])
+    oi = pd.DataFrame(rng.uniform(1e6, 5e6, (n, 3)), index=t, columns=["A", "B", "C"])
+    return Panel(close=px, funding=fund, open_interest=oi)
+
+
+def test_tripwire_catches_open_interest_lookahead():
+    # The tripwire must perturb open_interest too, or OI-peeking slips through.
+    with pytest.raises(AssertionError):
+        assert_causal(_OICheatStrategy(), _toy_panel_with_oi())
