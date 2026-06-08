@@ -16,6 +16,9 @@ class BacktestConfig:
     persistence_threshold: float = 0.00003
     persistence_window: int = 5
     max_holding_days: int = 30
+    causal_gate: bool = True  # True=trailing(honest), False=look-ahead(optimistic ceiling)
+    exit_mode: str = "rate"        # "rate"=instant on single neg settlement, "rolling"=hysteresis on trailing avg
+    min_hold_intervals: int = 0    # minimum funding intervals to hold before funding-exit allowed (~3/day)
     position_size_eur: float = 500.0
     cost_model: CostModel = field(default_factory=lambda: CostModel(
         fee_schedule=DEFAULT_FEE_SCHEDULE,
@@ -122,10 +125,16 @@ def run_backtest(
         if not in_position:
             if rate >= config.entry_threshold and rolling >= config.persistence_threshold:
                 horizon_days = min(config.max_holding_days, 14)
-                future_funding = funding_df[funding_df["timestamp"] > ts].head(horizon_days * 3)
-                remaining_intervals = len(future_funding)
-                avg_future_rate = float(future_funding["funding_rate"].mean()) if remaining_intervals > 0 else 0.0
-                expected_funding_bps = avg_future_rate * remaining_intervals * 10_000
+                horizon_intervals = horizon_days * 3
+                if config.causal_gate:
+                    # CAUSAL: trailing rolling funding (known at decision time), assumed to persist over horizon.
+                    expected_funding_bps = float(rolling) * horizon_intervals * 10_000
+                else:
+                    # OPTIMISTIC (look-ahead): peeks at realized future funding -> upper bound only.
+                    future_funding = funding_df[funding_df["timestamp"] > ts].head(horizon_intervals)
+                    remaining_intervals = len(future_funding)
+                    avg_future_rate = float(future_funding["funding_rate"].mean()) if remaining_intervals > 0 else 0.0
+                    expected_funding_bps = avg_future_rate * remaining_intervals * 10_000
 
                 if gate_passed(expected_funding_bps, config.cost_model):
                     in_position = True
@@ -137,7 +146,14 @@ def run_backtest(
             days_held = (ts - entry_ts).total_seconds() / 86_400
             exit_reason = None
 
-            if rate < config.exit_threshold:
+            # Funding-drop signal: instant single-rate vs hysteresis on trailing rolling avg
+            if config.exit_mode == "rolling":
+                funding_dropped = rolling < config.exit_threshold
+            else:
+                funding_dropped = rate < config.exit_threshold
+            min_hold_ok = (days_held * 3.0) >= config.min_hold_intervals
+
+            if funding_dropped and min_hold_ok:
                 exit_reason = "funding_flip"
             elif days_held >= config.max_holding_days:
                 exit_reason = "max_holding"
