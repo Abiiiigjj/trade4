@@ -30,6 +30,9 @@ class EngineConfig:
     cost_multiplier: float = 1.0   # cost-sensitivity sweep (1x / 2x / 3x)
     price_pnl_enabled: bool = True  # False = delta-neutral mode (carry leg hedged by spot)
     n_legs: int = 1                 # 2 for delta-neutral carry (spot + perp both traded)
+    holding_cost_bps_per_bar: float = 0.0  # per-bar drag on held gross notional
+    #   (delta-neutral carry: basis drift / imperfect hedge / hedge maintenance —
+    #    the cost the gross run optimistically set to zero)
 
 
 @dataclass
@@ -70,6 +73,10 @@ def run_portfolio_backtest(
         funding_pnl = pd.Series(0.0, index=panel.times)
 
     cost = turnover_cost(w, cfg.cost_bps, cfg.cost_multiplier, cfg.n_legs)
+    if cfg.holding_cost_bps_per_bar:
+        # drag on the notional held from t-1 into t, scaled by the cost sweep multiplier
+        held_gross = w_prev.abs().sum(axis=1)
+        cost = cost + held_gross * (cfg.holding_cost_bps_per_bar / 10_000.0) * cfg.cost_multiplier
     turnover = w.fillna(0.0).diff().abs()
     turnover.iloc[0] = w.iloc[0].abs()
     turnover_series = turnover.sum(axis=1)

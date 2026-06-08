@@ -56,6 +56,20 @@ def test_delta_neutral_mode_suppresses_price_pnl():
     assert abs(res.returns.sum() - 0.01) < 1e-9
 
 
+def test_holding_cost_drags_held_notional():
+    # Flat price, no funding, hold gross 1.0 short for 4 bars at 2 bps/bar holding cost.
+    # held from bar1..3 (w_prev nonzero) -> 3 bars * 2bps = 6 bps drag.
+    t = pd.date_range("2023-01-01", periods=4, freq="8h", tz="UTC")
+    close = pd.DataFrame({"A": [100.0] * 4}, index=t)
+    funding = pd.DataFrame({"A": [0.0] * 4}, index=t)
+    panel = Panel(close=close, funding=funding)
+    weights = pd.DataFrame({"A": [-1.0, -1.0, -1.0, -1.0]}, index=t)
+    cfg = EngineConfig(cost_bps=0.0, funding_enabled=False, price_pnl_enabled=False,
+                       holding_cost_bps_per_bar=2.0)
+    res = run_portfolio_backtest(panel, weights, cfg)
+    assert abs(res.cost.sum() - 3 * 2.0 / 10_000) < 1e-12
+
+
 def test_long_pays_positive_funding():
     # long(w=+1), rate=+0.01 -> funding_pnl = -1*0.01 = -0.01 (long PAYS)
     t = pd.date_range("2023-01-01", periods=2, freq="8h", tz="UTC")
