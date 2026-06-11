@@ -131,3 +131,38 @@ def test_stress_test_double_fees_double_slippage():
     assert gate_passed(expected_funding_bps=200.0, cost_model=base) is True
     # funding=100 should fail under stress (cost=20+10+20+10+10+10+4=84, 100-84=16>=15 BUT 100<2x84=168 -> fail ratio)
     assert gate_passed(expected_funding_bps=100.0, cost_model=base) is False
+
+
+# Scalper Cost Model Tests
+from trade4.backtest.cost_model import ScalperCostModel, scalper_round_trip_bps
+
+
+def test_scalper_cost_calm_entry():
+    model = ScalperCostModel(
+        perp_taker_bps=5.0,
+        calm_slippage_bps=5.0,
+        stress_slippage_bps=30.0,
+    )
+    # 2× perp taker (5+5) + 2× calm slippage (5+5) = 20 bps
+    assert scalper_round_trip_bps(model, stressed=False) == 20.0
+
+
+def test_scalper_cost_stressed_entry():
+    model = ScalperCostModel(
+        perp_taker_bps=5.0,
+        calm_slippage_bps=5.0,
+        stress_slippage_bps=30.0,
+    )
+    # 2× perp taker (5+5) + 2× stress slippage (30+30) = 70 bps
+    assert scalper_round_trip_bps(model, stressed=True) == 70.0
+
+
+def test_scalper_cost_stressed_is_costlier():
+    model = ScalperCostModel()
+    assert scalper_round_trip_bps(model, stressed=True) > scalper_round_trip_bps(model, stressed=False)
+
+
+def test_scalper_cost_model_defaults_are_conservative():
+    model = ScalperCostModel()
+    # Default stress slippage should be >= 20 bps to represent pump spike market orders
+    assert model.stress_slippage_bps >= 20.0
